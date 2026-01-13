@@ -14,6 +14,15 @@ The core application entry point.
   - **Tools**: Includes function tools for checking doctor availability, verifying insurance, and confirming appointments.
   - **Observability**: configured with native OpenTelemetry tracing to send full call traces to Langfuse.
 
+### Robust Edge Case Handling
+The agent includes specific logic to handle real-world conversation challenges:
+1. **Ambiguity Resolution**: Clarifies vague dates like "tomorrow" or "next week" (e.g., "Do you mean Monday?").
+2. **Refusal Handling**: If insurance is refused, seamlessly pivots to self-pay options ($250).
+3. **Irrelevance Filter**: Politely dismisses off-topic queries (weather, sports) and steers back to intake.
+4. **Silence/Mumbling**: Asks the user to repeat if speech input is unclear.
+5. **Strict Scope Control**: Immediately ends calls for physical ailments (flu, broken bones) to ensure safety.
+6. **Crisis Safety Net**: Prioritizes safety above all; transfers to a specialist if self-harm is detected.
+
 ### 2. `headless_agent.py`
 A testing utility for the agent's logic.
 - **Purpose**: Simulates the agent's conversation flow *without* the LiveKit audio infrastructure.
