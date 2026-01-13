@@ -96,18 +96,9 @@ class PatientData:
 # ==================================================
 # HELPERS
 # ==================================================
-def get_safe_chat_history(session: AgentSession) -> List[ChatMessage]:
-    try:
-        if hasattr(session, "chat_ctx") and hasattr(session.chat_ctx, "messages"):
-            return session.chat_ctx.messages
-        if hasattr(session, "_chat_ctx") and hasattr(session._chat_ctx, "messages"):
-            return session._chat_ctx.messages
-        if hasattr(session, "chat_ctx"):
-            try: return list(session.chat_ctx)
-            except: pass
-        return []
-    except:
-        return []
+# ==================================================
+# HELPER (Unused)
+# ==================================================
 
 # ==================================================
 # AGENTS
@@ -188,9 +179,10 @@ class IntakeCoordinatorAgent(Agent):
 
     @function_tool
     async def verify_insurance(self, context: RunContext[PatientData], insurance_provider: str, member_id: str):
-        # Edge Case: Short/Invalid ID
-        if len(member_id) < 3:
-            return "The Member ID seems too short. Please ask the user to check the card again."
+        # Edge Case: Short/Invalid ID. 
+        # Real-world IDs are alphanumeric and > 5 chars.
+        if len(member_id) < 5 or not any(c.isdigit() for c in member_id):
+            return "The Member ID seems invalid (too short or missing numbers). Please verify."
         return "Status: Active. Co-pay: $30."
 
     @function_tool
@@ -203,47 +195,6 @@ class IntakeCoordinatorAgent(Agent):
         # FIX: Use self.chat_ctx (from the agent instance) to avoid AttributeError
         return CrisisSpecialistAgent(chat_ctx=self.chat_ctx), "Transferring."
 
-
-# ==================================================
-# EVALUATION JUDGES
-# ==================================================
-async def run_safety_eval(transcript_text: str):
-    return json.dumps({"score": 1, "reason": "Safe."}) 
-
-async def run_quality_eval(transcript_text: str):
-    prompt = f"""
-    Rate this medical intake call (0 or 1).
-    Transcript: {transcript_text}
-    JSON: {{"score": 0/1, "reason": "..."}}
-    """
-    llm = groq.LLM(model="llama-3.3-70b-versatile")
-    ctx = ChatContext().append(role="user", text=prompt)
-    stream = await llm.chat(chat_ctx=ctx)
-    out = ""
-    async for c in stream: out += c.choices[0].delta.content or ""
-    return out
-
-# ==================================================
-# ENTRYPOINT
-# ==================================================
-def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load()
-
-async def entrypoint(ctx: JobContext):
-    await ctx.connect()
-    setup_langfuse() 
-
-    vad_instance = ctx.proc.userdata["vad"]
-    session = AgentSession[PatientData](
-        vad=vad_instance,
-        llm=groq.LLM(model="llama-3.3-70b-versatile"),
-        stt=deepgram.STT(model="nova-2"),
-        tts=deepgram.TTS(model="aura-asteria-en"),
-        userdata=PatientData(),
-    )
-
-    # Edge Case: Explicitly binding the loop if the Agent class doesn't auto-bind in this version
-    agent = IntakeCoordinatorAgent(job_ctx=ctx)
 
     @ctx.room.on("participant_disconnected")
     def on_user_disconnect(participant: rtc.Participant):
@@ -263,34 +214,6 @@ async def entrypoint(ctx: JobContext):
         )
     except asyncio.CancelledError:
         pass
-
-    logger.info("Generating Report Card...")
-    try:
-        chat_messages = get_safe_chat_history(session)
-        transcript = ""
-        for msg in chat_messages:
-            if msg.content:
-                transcript += f"{msg.role}: {msg.content}\n"
-        
-        if transcript:
-            try:
-                # Edge Case: Robust JSON parsing for the report card
-                def parse(raw): return json.loads(raw[raw.find("{"):raw.rfind("}")+1])
-                quality = parse(await run_quality_eval(transcript))
-                
-                print("\n" + "="*40)
-                print(" 🏥  ORCHARD CLINIC REPORT CARD")
-                print("="*40)
-                print(f"🌟 Quality:   {quality.get('score', 'N/A')} - {quality.get('reason', 'No reason provided')}")
-                print("="*40 + "\n")
-            except Exception as e:
-                logger.error(f"Report card generation failed: {e}")
-        else:
-            logger.warning("Transcript empty, skipping report card.")
-
-    except Exception as e:
-        logger.error(f"Post-call processing failed: {e}")
-
 
 if __name__ == "__main__":
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
