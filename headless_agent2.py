@@ -1,3 +1,13 @@
+"""
+HEADLESS AGENT SAMPLE (Trace Wrapper)
+-------------------------------------
+This script demonstrates how to manually instrument a multi-turn agent loop
+with Langfuse using context managers. It generates nested spans for each
+turn and the inner LLM generation.
+
+Usage:
+    python headless_agent2.py
+"""
 import os
 import asyncio
 import datetime
@@ -37,10 +47,18 @@ CONVERSATION = [
 ]
 
 # -----------------------------------
+# HELPER: System Prompt
+# -----------------------------------
+def get_system_prompt():
+    return "You are a helpful AI assistant for Orchard Clinic. Trace validation mode."
+
+# -----------------------------------
 # One trace per turn
 # -----------------------------------
 async def run_multiturn_simulation():
-
+    """
+    Simulates a multi-turn conversation to verify Langfuse nesting.
+    """
     messages = [
         {"role": "system", "content": get_system_prompt()}
     ]

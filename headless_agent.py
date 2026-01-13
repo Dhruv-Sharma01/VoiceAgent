@@ -1,3 +1,15 @@
+"""
+HEADLESS AGENT SIMULATION
+-------------------------
+This script simulates the agent's logic *without* connecting to LiveKit.
+It is useful for:
+1. Verifying Langfuse tracing integration (spans, generations, scores).
+2. Testing the conversation loop and state machine logic rapidly.
+3. Debugging LLM prompts and tools without audio latency.
+
+Usage:
+    python headless_agent.py
+"""
 import os
 import asyncio
 import datetime

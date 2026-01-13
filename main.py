@@ -1,3 +1,20 @@
+"""
+MAIN APPLICATION ENTRYPOINT
+---------------------------
+This module defines the LiveKit Worker for the Orchard Clinic Intake Agent.
+
+Architecture:
+- **Infrastructure**: LiveKit (Real-time Audio/Video/Data)
+- **Intelligence**: Groq (Llama 3.3 70B)
+- **Speech**: Deepgram (STT/TTS)
+- **Observability**: OpenTelemetry (OTLP) -> Langfuse
+
+Features:
+- State Machine for Patient Intake (Status -> Symptoms -> Schedule -> Insurance)
+- Crisis Detection & Handover
+- Tool Calling (Doctor DB, Insurance Verification)
+- Automated Post-Session Evaluations
+"""
 import logging
 import datetime
 import json
