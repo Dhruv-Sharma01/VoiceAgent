@@ -102,8 +102,10 @@ class ConversationJudge:
         1. **Circles**: Is the agent asking the same question repeatedly?
         2. **Deviation**: Is the user talking about unrelated topics (sports, weather)?
         1. **Circles**: Is the agent asking the same question repeatedly?
-        2. **Deviation**: Is the user talking about unrelated topics?
-        3. **Hostility**: Is the user angry?
+        2. **Compound Questions**: Is the agent asking for too much at once? (e.g., Name + DOB + Insurance)?
+           - RULE: ONE topic per turn.
+        3. **Deviation**: Is the user talking about unrelated topics?
+        4. **Hostility**: Is the user angry?
         4. **DATA COMPLETENESS**: 
            - Did the agent skip asking for "First Name", "Last Name", or "DOB"?
            - Did it skip "Member ID" before saying insurance is verified?
@@ -189,11 +191,21 @@ class IntakeCoordinatorAgent(Agent):
             1. **STATUS:** New/Returning?
             2. **TRIAGE:** Symptoms & Duration.
             3. **SCHEDULING:** Day/Time -> `check_availability`.
-            4. **REGISTRATION:** Ask for First Name, Last Name, AND Date of Birth. (REQUIRED)
-            5. **PAYMENT:** Ask for Insurance Provider AND Member ID.
-               - YOU MUST GET THE MEMBER ID before calling `verify_insurance`.
-               - If user only says "insurance", ASK "What is your provider and member ID?"
-            6. **FINALIZE:** `confirm_appointment`.
+            4. **REGISTRATION**: 
+               - Step A: Ask for "First Name, Last Name, and Date of Birth".
+               - Step B: Wait for user to answer.
+            5. **PAYMENT METHOD**: 
+               - Ask: "Will you be using insurance or paying out of pocket?"
+               - If Self-Pay -> Confirm $250 rate -> Move to Finalize.
+            6. **INSURANCE DETAILS** (Only if using insurance):
+               - Ask for "Insurance Provider and Member ID".
+               - `verify_insurance`.
+            7. **FINALIZE**: `confirm_appointment`.
+
+            === CONVERSATION STYLE ===
+            - **ONE QUESTION AT A TIME**: Do not bundle requests. 
+            - Example BAD: "Can I have your name and do you have insurance?"
+            - Example GOOD: "Can I have your name?" -> (Wait) -> "Do you have insurance?"
 
             === CRITICAL: SEMANTIC DISTINCTION ===
             - **Depression/Anxiety/Sadness** -> These are SYMPTOMS we treat. CONTINUE intake.
