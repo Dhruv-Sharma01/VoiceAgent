@@ -25,7 +25,7 @@ from livekit.agents import (
 from livekit.agents.llm import function_tool, ChatMessage
 from livekit.plugins import deepgram, groq, silero
 
-# --- NATIVE TRACING ---
+# --- NATIVE TRACING IMPORTS ---
 from livekit.agents.telemetry import set_tracer_provider
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
@@ -38,24 +38,35 @@ logger = logging.getLogger("orchard-clinic")
 # 0. SETUP & GLOBAL MEMORY
 # ==================================================
 SESSION_DB: Dict[str, dict] = {}
-SESSION_DB: Dict[str, dict] = {}
 REMOTE_DB: Dict[str, dict] = {}
 WAITLIST_DB: List[dict] = []
 
 def setup_langfuse():
+    """
+    Configures OpenTelemetry to send traces to Langfuse.
+    Reference: https://langfuse.com/docs/integrations/livekit
+    """
     public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
     secret_key = os.getenv("LANGFUSE_SECRET_KEY")
     host = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
-    if not public_key or not secret_key: return
     
+    if not public_key or not secret_key: 
+        logger.warning("⚠️ Langfuse credentials missing. Tracing disabled.")
+        return
+    
+    # 1. Create Auth Header
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
+    
+    # 2. Configure OTLP Endpoint
     os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = f"{host.rstrip('/')}/api/public/otel"
     os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {auth}"
     os.environ["OTEL_SERVICE_NAME"] = "Orchard Clinic Agent"
     
+    # 3. Set Provider
     tp = TracerProvider()
     tp.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     set_tracer_provider(tp)
+    logger.info("✅ Langfuse Tracing Enabled")
 
 # ==================================================
 # DATA MODELS
@@ -65,6 +76,7 @@ class PatientData:
     first_name: str = "John"
     last_name: str = "Smith"
     dob: Optional[str] = None           
+    phone: Optional[str] = None
     patient_status: Optional[str] = None
     symptoms: Optional[str] = None
     duration: Optional[str] = None       
@@ -78,19 +90,12 @@ class PatientData:
 # 1. THE JUDGE MODULE
 # ==================================================
 class ConversationJudge:
-    """
-    Evaluates the conversation history in real-time.
-    """
     def __init__(self):
-        # We use a fast model for the Judge to minimize latency
+        # Even this LLM call will be traced automatically by LiveKit's Groq plugin
         self.llm = groq.LLM(model="llama-3.3-70b-versatile") 
 
     async def evaluate(self, history: List[ChatMessage]) -> Optional[str]:
-        """
-        Returns an instruction string if intervention is needed, else None.
-        """
-        # 1. Prepare Transcript for the Judge
-        transcript = "\n".join([f"{m.role.upper()}: {m.content}" for m in history[-6:]]) # Look at last 6 turns
+        transcript = "\n".join([f"{m.role.upper()}: {m.content}" for m in history[-6:]])
         
         prompt = f"""
         You are a conversation supervisor. Review the transcript below.
@@ -100,14 +105,12 @@ class ConversationJudge:
         
         CHECK FOR:
         1. **Circles**: Is the agent asking the same question repeatedly?
-        2. **Deviation**: Is the user talking about unrelated topics (sports, weather)?
-        1. **Circles**: Is the agent asking the same question repeatedly?
         2. **Compound Questions**: Is the agent asking for too much at once? (e.g., Name + DOB + Insurance)?
            - RULE: ONE topic per turn.
         3. **Deviation**: Is the user talking about unrelated topics?
         4. **Hostility**: Is the user angry?
-        4. **DATA COMPLETENESS**: 
-           - Did the agent skip asking for "First Name", "Last Name", or "DOB"?
+        5. **DATA COMPLETENESS**: 
+           - Did the agent skip asking for "First Name", "Last Name", "DOB", or "Phone Number"?
            - Did it skip "Member ID" before saying insurance is verified?
            - If YES, INSTRUCT agent to go back and ask for them.
         
@@ -119,8 +122,6 @@ class ConversationJudge:
         YOUR VERDICT (Single line):
         """
         
-        # 2. Query Judge LLM
-        # We create a temporary context just for this judgment call
         judge_ctx = ChatContext().append(role="user", text=prompt)
         
         try:
@@ -130,10 +131,11 @@ class ConversationJudge:
                 verdict += chunk.choices[0].delta.content or ""
             
             verdict = verdict.strip()
+            # This logger info is helpful, but the Trace will show the full IO
             logger.info(f"👨‍⚖️ JUDGE VERDICT: {verdict}")
             
             if "OK" in verdict or len(verdict) < 5:
-                return None # No intervention needed
+                return None 
             return verdict
             
         except Exception as e:
@@ -149,7 +151,6 @@ async def save_to_remote_db(user_identity: str, patient_data: PatientData, chat_
     
     transcript_text = "\n".join([f"{m.role}: {m.content}" for m in chat_history if m.content])
     
-    # Simple Append Logic
     if user_identity not in REMOTE_DB:
          REMOTE_DB[user_identity] = []
     
@@ -179,7 +180,7 @@ class IntakeCoordinatorAgent(Agent):
     def __init__(self, job_ctx: JobContext, user_identity: str):
         self.job_ctx = job_ctx
         self.user_identity = user_identity
-        self.judge = ConversationJudge() # <--- Instantiate the Judge
+        self.judge = ConversationJudge()
         
         now = datetime.datetime.now().strftime("%A, %B %d, %Y")
         super().__init__(
@@ -193,7 +194,7 @@ class IntakeCoordinatorAgent(Agent):
             3. **SCHEDULING:** Day/Time -> `check_availability`.
             4. **REGISTRATION**: 
                - Step A: Ask for "First Name, Last Name, and Date of Birth".
-               - Step B: Wait for user to answer.
+               - Step B: Ask for "Phone Number".
             5. **PAYMENT METHOD**: 
                - Ask: "Will you be using insurance or paying out of pocket?"
                - If Self-Pay -> Confirm $250 rate -> Move to Finalize.
@@ -212,16 +213,15 @@ class IntakeCoordinatorAgent(Agent):
             - **"I want to die" / "I have a gun" / "I will kill myself"** -> These are EMERGENCIES.
             
             === SAFETY PROTOCOL ===
-            ONLY Call `detect_crisis` if the user explicitly threatens IMMEDIATE self-harm or suicide.
+            ONLY Call `detect_crisis` if the user explicitly threatens IMMEDIATE self-harm, suicide or sudden
+            panic attack.
             DO NOT call it for general depression or "feeling down".
             """,
             tts=deepgram.TTS(model="aura-asteria-en"),
         )
 
-    # --- SAVE STATE ---
     def save_state(self):
         try:
-            # DEBUG: Find where the history lives
             source = None
             if hasattr(self.session, "chat_context"):
                 source = self.session.chat_context
@@ -230,22 +230,16 @@ class IntakeCoordinatorAgent(Agent):
             elif hasattr(self, "chat_ctx"):
                 source = self.chat_ctx
             
-            # Try to get messages
             messages = []
             if source:
                  if hasattr(source, "messages"):
                      messages = source.messages
                  elif isinstance(source, list):
                      messages = source
-                 # Special check for _ReadOnlyChatContext which might need a property
                  elif hasattr(source, "to_list"): 
                      messages = source.to_list()
             
-            if not messages:
-                 # If we still can't find it, LOG IT so we can fix it next turn
-                 # logger.warning(f"DEBUG: Could not find messages. Session items: {dir(self.session)}")
-                 # logger.warning(f"DEBUG: Agent items: {dir(self)}")
-                 return
+            if not messages: return
 
             history_dump = [{"role": m.role, "content": m.content} for m in messages]
             
@@ -256,30 +250,25 @@ class IntakeCoordinatorAgent(Agent):
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
 
-    # --- INTERCEPT USER MESSAGE ---
     async def on_message(self, msg: ChatMessage):
         if not msg.content: return
 
-        # 1. EVALUATE WITH JUDGE (Before replying)
-        # Use session context for history
+        # 1. JUDGE (Traced automatically)
         current_history = self.session.chat_ctx.messages if hasattr(self.session.chat_ctx, "messages") else list(self.session.chat_ctx)
         advice = await self.judge.evaluate(current_history)
         
-        # 2. INJECT JUDGMENT (If any)
+        # 2. INJECT
         if advice:
             logger.warning(f"💉 INJECTING ADVICE: {advice}")
-            # We add a temporary System message that guides the agent for THIS turn only
-            # The agent will see this immediately before generating its answer.
             injection = f"[SUPERVISOR INSTRUCTION]: {advice}"
             self.chat_ctx.append(role="system", text=injection)
 
-        # 3. GENERATE REPLY
+        # 3. REPLY (Traced automatically)
         await self.session.generate_reply()
         
-        # 4. SAVE STATE
+        # 4. SAVE
         self.save_state()
 
-    # --- TOOLS ---
     @function_tool
     async def end_call(self, reason: str):
         await self.job_ctx.room.disconnect()
@@ -291,20 +280,16 @@ class IntakeCoordinatorAgent(Agent):
         query_day = day_of_week.lower()
         query_time = time_of_day.lower()
 
-        # Logic: Only Monday mornings (AM) are available
         is_monday = "monday" in query_day
         is_morning = "am" in query_time
         is_pm = "pm" in query_time
         
-        # 1. Reject PM / Late hours
         if is_pm:
              return f"We are closed at {time_of_day}. Our hours are 9 AM to 5 PM."
 
-        # 2. Offer Slots if valid
         if is_monday and is_morning:
             return "Available: Dr. Puckett (9:30 AM), Dr. Lee (9:00 AM)."
         
-        # 3. Waitlist Logic (No slots)
         WAITLIST_DB.append({
             "user_id": self.user_identity,
             "day": day_of_week,
@@ -330,12 +315,8 @@ class IntakeCoordinatorAgent(Agent):
         return CrisisSpecialistAgent(chat_ctx=self.chat_ctx), "Transferring."
 
     async def on_enter(self):
-        logger.info(f"DEBUG: chat_ctx type: {type(self.chat_ctx)}")
-        logger.info(f"DEBUG: chat_ctx dir: {dir(self.chat_ctx)}")
-        
         has_history = False
         try:
-            # Attempt to check history safely
             if hasattr(self.chat_ctx, "messages"):
                 has_history = len(self.chat_ctx.messages) > 1
             elif hasattr(self.chat_ctx, "__len__"):
@@ -355,10 +336,11 @@ def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
 
 async def entrypoint(ctx: JobContext):
-    await ctx.connect()
+    # 1. SETUP MONITORING (Before connection)
     setup_langfuse()
+    
+    await ctx.connect()
 
-    # Wait for the first participant to connect
     participant = await ctx.wait_for_participant()
     user_id = participant.identity
     logger.info(f"👤 Connected: {user_id}")
@@ -384,14 +366,12 @@ async def entrypoint(ctx: JobContext):
     
     agent = IntakeCoordinatorAgent(job_ctx=ctx, user_identity=user_id)
     
-    # Inject History
     if initial_history:
         for m in initial_history:
-            if m["role"] != "system": # Don't duplicate old system prompts
+            if m["role"] != "system":
                 agent.chat_ctx.append(role=m["role"], text=m["content"])
         agent.chat_ctx.append(role="system", text="[SYSTEM]: Session restored. Resume conversation.")
 
-    # Shutdown Hook
     async def shutdown_handler():
         try:
             ctx_source = session.chat_ctx
