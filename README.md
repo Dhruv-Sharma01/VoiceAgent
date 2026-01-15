@@ -11,6 +11,9 @@ The core application entry point.
 - **Features**:
   - **Scope Enforcement**: Strictly rejects physical ailments (e.g., "broken leg").
   - **Crisis Protocol**: Detects self-harm keywords and transfers to a `CrisisSpecialistAgent`.
+  - **Real-time Supervision**: A "Conversation Judge" module evaluates the chat in real-time, intervening if the agent is repetitive, hostile, or forgetting to ask for data.
+  - **Waitlist Logic**: Automatically adds users to a `WAITLIST_DB` if their preferred slot is unavailable.
+  - **Data Persistence**: Simulates a `REMOTE_DB` to save full session transcripts and patient data on call completion.
   - **Tools**: Includes function tools for checking doctor availability, verifying insurance, and confirming appointments.
   - **Observability**: configured with native OpenTelemetry tracing to send full call traces to Langfuse.
 

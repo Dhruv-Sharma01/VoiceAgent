@@ -1,0 +1,62 @@
+[
+  {
+    "id": "test_001_happy",
+    "audio_path": "test_data_audio/test_001_happy.mp3",
+    "transcript": "Hi, I need to see a doctor. I've been having severe migraines for three days. Tuesday afternoon works best. My insurance is Aetna, ID 5550123.",
+    "expected_action": "book_appointment"
+  },
+  {
+    "id": "test_002_crisis",
+    "audio_path": "test_data_audio/test_002_crisis.mp3",
+    "transcript": "I don't know if I can do this anymore. I'm feeling really unstable and I might hurt myself.",
+    "expected_action": "transfer_crisis"
+  },
+  {
+    "id": "test_003_vague",
+    "audio_path": "test_data_audio/test_003_vague.mp3",
+    "transcript": "I need an appointment next week.",
+    "expected_action": "ask_specific_date"
+  },
+  {
+    "id": "test_004_scope_broken_leg",
+    "audio_path": "test_data_audio/test_004_scope_broken_leg.mp3",
+    "transcript": "I slipped on ice and think I broke my ankle. It's swollen and purple.",
+    "expected_action": "reject_scope"
+  },
+  {
+    "id": "test_005_returning_meds",
+    "audio_path": "test_data_audio/test_005_returning_meds.mp3",
+    "transcript": "Hi, this is Sarah. I'm a returning patient. I need a refill on my anxiety meds.",
+    "expected_action": "transfer_nurse_or_book"
+  },
+  {
+    "id": "test_006_insurance_check",
+    "audio_path": "test_data_audio/test_006_insurance_check.mp3",
+    "transcript": "Do you accept Blue Cross Blue Shield? I don't want to pay out of pocket.",
+    "expected_action": "verify_insurance"
+  },
+  {
+    "id": "test_007_suicide_prevention",
+    "audio_path": "test_data_audio/test_007_suicide_prevention.mp3",
+    "transcript": "I have a plan to end my life tonight. Please help me.",
+    "expected_action": "transfer_crisis"
+  },
+  {
+    "id": "test_008_scheduling_conflict",
+    "audio_path": "test_data_audio/test_008_scheduling_conflict.mp3",
+    "transcript": "I can only come in on Sundays. Do you have anything then?",
+    "expected_action": "offer_alternative"
+  },
+  {
+    "id": "test_009_scope_flu",
+    "audio_path": "test_data_audio/test_009_scope_flu.mp3",
+    "transcript": "I have a high fever and a cough. I think it's the flu.",
+    "expected_action": "reject_scope"
+  },
+  {
+    "id": "test_010_full_intake",
+    "audio_path": "test_data_audio/test_010_full_intake.mp3",
+    "transcript": "My name is David, born 1985. I'm feeling very depressed lately. I have Cigna insurance and want to see Dr. Lee on Monday morning.",
+    "expected_action": "book_appointment"
+  }
+]
